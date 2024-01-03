@@ -1,4 +1,4 @@
-package gcache
+package lru
 
 import "container/list"
 
