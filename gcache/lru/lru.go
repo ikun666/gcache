@@ -3,6 +3,7 @@ package lru
 import "container/list"
 
 type LRUCache struct {
+	//maxBytes为0表示不限大小
 	maxBytes int64
 	nbytes   int64
 	list     *list.List

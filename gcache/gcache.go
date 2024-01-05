@@ -64,7 +64,7 @@ func (g *Group) Get(key string) (ByteView, error) {
 	}
 
 	if v, ok := g.mainCache.get(key); ok {
-		slog.Info("[GeeCache] hit")
+		slog.Info("[GCache] hit")
 		return v, nil
 	}
 
