@@ -24,6 +24,8 @@ type Group struct {
 	name      string
 	getter    Getter
 	mainCache cache
+	//分布式节点
+	peers PeerPicker
 }
 
 var (
@@ -56,6 +58,15 @@ func GetGroup(name string) *Group {
 	return g
 }
 
+// RegisterPeers registers a PeerPicker for choosing remote peer
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		slog.Error("[RegisterPeerPicker called more than once]")
+		return
+	}
+	g.peers = peers
+}
+
 // Get value for a key from cache
 // 没有缓存会调用回调函数加载
 func (g *Group) Get(key string) (ByteView, error) {
@@ -73,7 +84,25 @@ func (g *Group) Get(key string) (ByteView, error) {
 
 // 没有缓存  可选本地和远端加载
 func (g *Group) load(key string) (value ByteView, err error) {
+	//优先从远端加载缓存
+	if g.peers != nil {
+		if peer, ok := g.peers.PickPeer(key); ok {
+			if value, err = g.getFromPeer(peer, key); err == nil {
+				return value, nil
+			}
+			slog.Info("[GCache] Failed to get from peer", "err", err)
+		}
+	}
 	return g.getLocally(key)
+}
+
+// 从远端加载数据
+func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	return ByteView{b: bytes}, nil
 }
 
 // 从本地加载数据

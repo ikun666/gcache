@@ -88,7 +88,7 @@ func (m *Map) Get(key string) string {
 		}
 		return -1
 	})
-	//没有找到大于等于的 第一个就是他的值
+	//没有找到大于等于的  顺时针看第一个就是他的值
 	if !ok {
 		idx = 0
 	}
