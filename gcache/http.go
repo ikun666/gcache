@@ -90,9 +90,9 @@ func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	peer := p.peers.Get(key)
-	slog.Info("[PickPeer]", "peer", peer, "p.addr", p.addr)
+	slog.Info("[PickPeer]", "peer", peer, "p.addr", p.addr, "p.httpGetters[peer]", p.httpGetters[peer])
+	//选择的节点不能是空和自身 选自己机会一直调用自己
 	if peer != "" && peer != p.addr {
-
 		return p.httpGetters[peer], true
 	}
 	return nil, false

@@ -52,7 +52,7 @@ func (m *Map) Add(keys ...string) {
 		}
 	}
 	slices.Sort(m.hashRing)
-	// fmt.Println(m.hashCircle)
+	// fmt.Println(m.hashRing)
 }
 
 // Remove use to remove a key and its virtual keys on the ring and map

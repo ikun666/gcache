@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/ikun666/gcache/singleflight"
 )
 
 // A Getter loads data for a key.
@@ -26,6 +28,8 @@ type Group struct {
 	mainCache cache
 	//分布式节点
 	peers PeerPicker
+	//并发请求同一个key只执行一次
+	loader *singleflight.Group
 }
 
 var (
@@ -44,6 +48,7 @@ func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 		name:      name,
 		getter:    getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader:    &singleflight.Group{},
 	}
 	groups[name] = g
 	return g
@@ -83,17 +88,24 @@ func (g *Group) Get(key string) (ByteView, error) {
 }
 
 // 没有缓存  可选本地和远端加载
-func (g *Group) load(key string) (value ByteView, err error) {
-	//优先从远端加载缓存
-	if g.peers != nil {
-		if peer, ok := g.peers.PickPeer(key); ok {
-			if value, err = g.getFromPeer(peer, key); err == nil {
-				return value, nil
+func (g *Group) load(key string) (ByteView, error) {
+	value, err := g.loader.Do(key, func() (any, error) {
+		//优先从远端加载缓存
+		if g.peers != nil {
+			if peer, ok := g.peers.PickPeer(key); ok {
+				value, err := g.getFromPeer(peer, key)
+				if err == nil {
+					return value, nil
+				}
+				slog.Info("[GCache] Failed to get from peer", "err", err)
 			}
-			slog.Info("[GCache] Failed to get from peer", "err", err)
 		}
+		return g.getLocally(key)
+	})
+	if err != nil {
+		return ByteView{}, err
 	}
-	return g.getLocally(key)
+	return value.(ByteView), err
 }
 
 // 从远端加载数据
