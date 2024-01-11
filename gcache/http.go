@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/ikun666/gcache/consistentHash"
+	"github.com/ikun666/gcache/gcachepb"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -68,9 +70,13 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
+	body, err := proto.Marshal(&gcachepb.Response{Value: view.b})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Write(view.b)
+	w.Write(body)
 }
 
 // Set updates the pool's list of peers.
@@ -104,27 +110,29 @@ type httpGetter struct {
 }
 
 // HTTP 客户端类 httpGetter，实现 PeerGetter 接口。
-func (h *httpGetter) Get(group string, key string) ([]byte, error) {
+func (h *httpGetter) Get(req *gcachepb.Request, resp *gcachepb.Response) error {
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
-		url.QueryEscape(group),
-		url.QueryEscape(key),
+		url.QueryEscape(req.Group),
+		url.QueryEscape(req.Key),
 	)
 	res, err := http.Get(u)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned: %v", res.Status)
+		return fmt.Errorf("server returned: %v", res.Status)
 	}
 
 	bytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading response body: %v", err)
+		return fmt.Errorf("reading response body: %v", err)
 	}
-
-	return bytes, nil
+	if err = proto.Unmarshal(bytes, resp); err != nil {
+		return fmt.Errorf("decoding response body: %v", err)
+	}
+	return nil
 }

@@ -14,6 +14,8 @@ var db = map[string]string{
 	"Tom":  "630",
 	"Jack": "589",
 	"Sam":  "567",
+	"IKUN": "250",
+	"CXK":  "2.5",
 }
 
 func createGroup() *gcache.Group {
@@ -66,6 +68,7 @@ func main() {
 		8001: "http://localhost:8001",
 		8002: "http://localhost:8002",
 		8003: "http://localhost:8003",
+		8004: "http://localhost:8004",
 	}
 
 	var addrs []string

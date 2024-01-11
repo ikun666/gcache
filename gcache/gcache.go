@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/ikun666/gcache/gcachepb"
 	"github.com/ikun666/gcache/singleflight"
 )
 
@@ -110,11 +111,21 @@ func (g *Group) load(key string) (ByteView, error) {
 
 // 从远端加载数据
 func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
-	bytes, err := peer.Get(g.name, key)
+	// bytes, err := peer.Get(g.name, key)
+	// if err != nil {
+	// 	return ByteView{}, err
+	// }
+	// return ByteView{b: bytes}, nil
+	req := &gcachepb.Request{
+		Group: g.name,
+		Key:   key,
+	}
+	res := &gcachepb.Response{}
+	err := peer.Get(req, res)
 	if err != nil {
 		return ByteView{}, err
 	}
-	return ByteView{b: bytes}, nil
+	return ByteView{b: res.Value}, nil
 }
 
 // 从本地加载数据
