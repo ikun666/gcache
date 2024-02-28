@@ -1,4 +1,4 @@
-package gcache
+package httpserver
 
 import (
 	"fmt"
@@ -9,33 +9,40 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ikun666/gcache"
+	"github.com/ikun666/gcache/conf"
 	"github.com/ikun666/gcache/consistentHash"
-	"github.com/ikun666/gcache/gcachepb"
-	"google.golang.org/protobuf/proto"
+	"github.com/ikun666/gcache/etcd"
 )
 
-const (
-	defaultBasePath = "/_gcache/"
-	defaultReplicas = 50
-)
+// const (
+// 	defaultBasePath = "/_gcache/"
+// 	defaultReplicas = 50
+// )
 
 // HTTPPool implements PeerPicker for a pool of HTTP peers.
 type HTTPPool struct {
-	// this peer's base URL, e.g. "https://example.net:8000"
+	// this peer's base URL, e.g. "localhostt:8000"
 	addr     string
+	ip       string
+	port     string
+	protocol string
 	basePath string
 	mu       sync.Mutex // guards peers and httpGetters
 	peers    *consistentHash.Map
 	//每一个远程节点对应一个 httpGetter
-	httpGetters map[string]*httpGetter // keyed by e.g. "http://10.0.0.2:8008"
+	httpGetters map[string]*httpGetter // keyed by e.g. "10.0.0.2:8008"
 }
 
 // NewHTTPPool initializes an HTTP pool of peers.
-func NewHTTPPool(addr string) *HTTPPool {
+func NewHTTPPool(addr, ip, port, protocol string) *HTTPPool {
 	return &HTTPPool{
 		addr:        addr,
-		basePath:    defaultBasePath,
-		peers:       consistentHash.New(defaultReplicas, nil),
+		ip:          ip,
+		port:        port,
+		protocol:    protocol,
+		basePath:    conf.GConfig.HttpBasePath,
+		peers:       consistentHash.New(conf.GConfig.Replicas, nil),
 		httpGetters: make(map[string]*httpGetter),
 	}
 }
@@ -59,7 +66,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	groupName := parts[0]
 	key := parts[1]
 
-	group := GetGroup(groupName)
+	group := gcache.GetGroup(groupName)
 	if group == nil {
 		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
 		return
@@ -70,34 +77,37 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	body, err := proto.Marshal(&gcachepb.Response{Value: view.b})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Write(body)
+	w.Write(view.ByteSlice())
 }
 
 // Set updates the pool's list of peers.
 // 加入节点
-func (p *HTTPPool) Add(peers ...string) {
+func (p *HTTPPool) AddPeers(peers ...string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.peers.Add(peers...)
 	for _, peer := range peers {
-		//"http://10.0.0.2:8008/_gcache/"
+		//"10.0.0.2:8008/_gcache/"
 		p.httpGetters[peer] = &httpGetter{baseURL: peer + p.basePath}
+	}
+}
+func (p *HTTPPool) DelPeers(peers ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.peers.Remove(peers...)
+	for _, peer := range peers {
+		delete(p.httpGetters, peer)
 	}
 }
 
 // PickPeer picks a peer according to key
-func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
+func (p *HTTPPool) Pick(key string) (gcache.Fetcher, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	peer := p.peers.Get(key)
-	slog.Info("[PickPeer]", "peer", peer, "p.addr", p.addr, "p.httpGetters[peer]", p.httpGetters[peer])
-	//选择的节点不能是空和自身 选自己机会一直调用自己
+	slog.Info("[Pick]", "peer", peer, "p.addr", p.addr, "p.httpGetters[peer]", p.httpGetters[peer])
+	//选择的节点不能是空和自身 选自己会一直调用自己
 	if peer != "" && peer != p.addr {
 		return p.httpGetters[peer], true
 	}
@@ -109,30 +119,47 @@ type httpGetter struct {
 	baseURL string
 }
 
-// HTTP 客户端类 httpGetter，实现 PeerGetter 接口。
-func (h *httpGetter) Get(req *gcachepb.Request, resp *gcachepb.Response) error {
+// HTTP 客户端类 httpGetter，实现 Fetch 接口。
+func (h *httpGetter) Fetch(group string, key string) ([]byte, error) {
 	u := fmt.Sprintf(
-		"%v%v/%v",
+		"http://%v%v/%v",
 		h.baseURL,
-		url.QueryEscape(req.Group),
-		url.QueryEscape(req.Key),
+		url.QueryEscape(group),
+		url.QueryEscape(key),
 	)
+	// fmt.Println(u)
 	res, err := http.Get(u)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned: %v", res.Status)
+		return nil, fmt.Errorf("server returned: %v", res.Status)
 	}
 
 	bytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return fmt.Errorf("reading response body: %v", err)
+		return nil, fmt.Errorf("reading response body: %v", err)
 	}
-	if err = proto.Unmarshal(bytes, resp); err != nil {
-		return fmt.Errorf("decoding response body: %v", err)
-	}
-	return nil
+
+	return bytes, nil
+}
+
+// Start 启动 Cache 服务
+func (p *HTTPPool) Start() error {
+	// 注册服务至 etcd
+	go func() {
+		// Register never return unless stop signal received (blocked)
+		etcd.Register(&etcd.Service{
+			Addr:     p.addr,
+			IP:       p.ip,
+			Port:     p.port,
+			Protocol: p.protocol,
+		})
+	}()
+	go etcd.WatchPeers(p, conf.GConfig.Prefix)
+	//TODO
+
+	return http.ListenAndServe(p.addr, p)
 }

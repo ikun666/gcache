@@ -1,4 +1,4 @@
-package gcache_test
+package httpserver
 
 import (
 	"fmt"
@@ -9,11 +9,11 @@ import (
 	"github.com/ikun666/gcache"
 )
 
-// var db = map[string]string{
-// 	"Tom":  "630",
-// 	"Jack": "589",
-// 	"Sam":  "567",
-// }
+var db = map[string]string{
+	"Tom":  "630",
+	"Jack": "589",
+	"Sam":  "567",
+}
 
 func TestHttp(t *testing.T) {
 	gcache.NewGroup("scores", 2<<10, gcache.GetterFunc(
@@ -27,7 +27,7 @@ func TestHttp(t *testing.T) {
 		}))
 
 	addr := "localhost:9999"
-	peers := gcache.NewHTTPPool(addr)
+	peers := NewHTTPPool(addr, "localhost", "9999", "http")
 	slog.Info("gcache is running at", "addr", addr)
 	err := http.ListenAndServe(addr, peers)
 	if err != nil {

@@ -1,0 +1,11 @@
+{
+    "api_addr":"http://localhost:9999",
+    "prefix" : "clusters/",
+    "dns":"root:a5615101@tcp(127.0.0.1:3306)/kv_cache?charset=utf8mb4&parseTime=True&loc=Local",
+    "replicas":50,
+    "http_base_path":"/_gcache/",
+    "max_bytes": 4096,
+    "endpoints":["192.168.44.132:22379", "192.168.44.132:22381", "192.168.44.132:22383"],
+    "dial_timeout": 5,
+    "lease_ttl":5
+}

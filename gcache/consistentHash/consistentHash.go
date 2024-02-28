@@ -40,10 +40,6 @@ func New(replicas int, fn Hash) *Map {
 // 添加keys到哈希环
 func (m *Map) Add(keys ...string) {
 	for _, key := range keys {
-		//将自己加入
-		hash := m.hash([]byte(key))
-		m.hashRing = append(m.hashRing, hash)
-		m.hashMap[hash] = key
 		//每个key都要有虚拟节点 加入虚拟节点
 		for i := 0; i < m.replicas; i++ {
 			hash := m.hash([]byte(strconv.Itoa(i) + key))
@@ -58,11 +54,6 @@ func (m *Map) Add(keys ...string) {
 // Remove use to remove a key and its virtual keys on the ring and map
 func (m *Map) Remove(keys ...string) {
 	for _, key := range keys {
-		//将自己删除
-		hash := m.hash([]byte(key))
-		idx, _ := slices.BinarySearch(m.hashRing, hash)
-		m.hashRing = append(m.hashRing[:idx], m.hashRing[idx+1:]...)
-		delete(m.hashMap, hash)
 		//删除虚拟节点
 		for i := 0; i < m.replicas; i++ {
 			hash := m.hash([]byte(strconv.Itoa(i) + key))
@@ -72,6 +63,8 @@ func (m *Map) Remove(keys ...string) {
 			delete(m.hashMap, hash)
 		}
 	}
+	// fmt.Println(m.hashRing)
+
 }
 
 // Get gets the closest item in the hash to the provided key.

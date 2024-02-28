@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/ikun666/gcache/gcachepb"
 	"github.com/ikun666/gcache/singleflight"
 )
 
@@ -28,7 +27,7 @@ type Group struct {
 	getter    Getter
 	mainCache cache
 	//分布式节点
-	peers PeerPicker
+	peers Picker
 	//并发请求同一个key只执行一次
 	loader *singleflight.Group
 }
@@ -64,8 +63,8 @@ func GetGroup(name string) *Group {
 	return g
 }
 
-// RegisterPeers registers a PeerPicker for choosing remote peer
-func (g *Group) RegisterPeers(peers PeerPicker) {
+// RegisterServer registers a PeerPicker for choosing remote peer
+func (g *Group) RegisterServer(peers Picker) {
 	if g.peers != nil {
 		slog.Error("[RegisterPeerPicker called more than once]")
 		return
@@ -82,6 +81,7 @@ func (g *Group) Get(key string) (ByteView, error) {
 
 	if v, ok := g.mainCache.get(key); ok {
 		slog.Info("[GCache] hit")
+		// fmt.Println("cache", v)
 		return v, nil
 	}
 
@@ -93,7 +93,7 @@ func (g *Group) load(key string) (ByteView, error) {
 	value, err := g.loader.Do(key, func() (any, error) {
 		//优先从远端加载缓存
 		if g.peers != nil {
-			if peer, ok := g.peers.PickPeer(key); ok {
+			if peer, ok := g.peers.Pick(key); ok {
 				value, err := g.getFromPeer(peer, key)
 				if err == nil {
 					return value, nil
@@ -110,22 +110,12 @@ func (g *Group) load(key string) (ByteView, error) {
 }
 
 // 从远端加载数据
-func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
-	// bytes, err := peer.Get(g.name, key)
-	// if err != nil {
-	// 	return ByteView{}, err
-	// }
-	// return ByteView{b: bytes}, nil
-	req := &gcachepb.Request{
-		Group: g.name,
-		Key:   key,
-	}
-	res := &gcachepb.Response{}
-	err := peer.Get(req, res)
+func (g *Group) getFromPeer(peer Fetcher, key string) (ByteView, error) {
+	bytes, err := peer.Fetch(g.name, key)
 	if err != nil {
 		return ByteView{}, err
 	}
-	return ByteView{b: res.Value}, nil
+	return ByteView{b: bytes}, nil
 }
 
 // 从本地加载数据
@@ -135,7 +125,8 @@ func (g *Group) getLocally(key string) (ByteView, error) {
 		return ByteView{}, err
 
 	}
-	value := ByteView{b: cloneBytes(bytes)}
+	value := ByteView{b: bytes}
+	// fmt.Println("local", value)
 	g.populateCache(key, value)
 	return value, nil
 }
